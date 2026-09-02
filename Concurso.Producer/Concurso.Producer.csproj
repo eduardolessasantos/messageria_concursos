@@ -27,5 +27,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Concurso.Messaging\Concurso.Messaging.csproj" />
+    <ProjectReference Include="..\Concurso.Shared\Concurso.Shared.csproj" />
   </ItemGroup>
 </Project>

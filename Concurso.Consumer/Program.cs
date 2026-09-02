@@ -1,11 +1,15 @@
 using Concurso.Consumer.Consumers;
 using Concurso.Consumer.Data;
 using Concurso.Consumer.Repositories;
+using Concurso.Shared.Health;
+using Concurso.Shared.Metrics;
+using Concurso.Shared.Options;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Serilog;
 using System;
 using System.Security.Authentication;
@@ -14,35 +18,26 @@ using System.Security.Authentication;
 var builder = Host.CreateApplicationBuilder(args);
 
 // Serilog básico (console structured)
-Log.Logger = new LoggerConfiguration()
-.MinimumLevel.Information()
-.Enrich.FromLogContext()
-.WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
-.CreateLogger();
+Log.Logger = new LoggerConfiguration().MinimumLevel.Information().Enrich.FromLogContext().WriteTo.Console().CreateLogger();
 
 builder.Services.AddSerilog();
 
-var configuration = builder.Configuration;
-
-// Configurações: espera RabbitMQ:Host, VirtualHost, Username, Password, Port
-var rabbitHost = builder.Configuration["RabbitMQ:Host"];//configuration["RabbitMQ:Host"] ?? "localhost";
-var rabbitPort = builder.Configuration.GetValue<ushort>("RabbitMQ:Port");//configuration.GetValue<ushort?>("RabbitMQ:Port") ?? 5672;
-var rabbitVHost = builder.Configuration["RabbitMQ:VirtualHost"];//configuration["RabbitMQ:VirtualHost"] ?? "/";
-var rabbitUser = builder.Configuration["RabbitMQ:Username"];//configuration["RabbitMQ:Username"] ?? "guest";
-var rabbitPass = builder.Configuration["RabbitMQ:Password"];//configuration["RabbitMQ:Password"] ?? "guest";
+// Bind options
+builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection("RabbitMQ"));
 
 // Db
-var sqliteConn = configuration.GetValue<string>("ConnectionStrings:Sqlite") ?? "Data Source=concurso_consumer.db";
+var sqliteConn = builder.Configuration.GetValue<string>("ConnectionStrings:Sqlite") ?? "Data Source=concurso_consumer.db";
 
 builder.Services.AddDbContext<ConcursoDbContext>(opts =>
 {
 opts.UseSqlite(sqliteConn);
 });
 
+// Metrics
+builder.Services.AddSingleton<IAppMetrics, InMemoryAppMetrics>();
+
 // Repository
 builder.Services.AddScoped<IConcursoRepository, ConcursoRepository>();
-
-Console.WriteLine($"RabbitMQ Config - Host: {builder.Configuration["RabbitMQ:Host"]}, Port: {builder.Configuration.GetValue<ushort>("RabbitMQ:Port")}, VHost: {builder.Configuration["RabbitMQ:VirtualHost"]}, User: {builder.Configuration["RabbitMQ:Username"]}");
 
 // MassTransit consumer registration
 builder.Services.AddMassTransit(x =>
@@ -51,36 +46,32 @@ builder.Services.AddMassTransit(x =>
 
     x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host(
-        builder.Configuration["RabbitMQ:Host"],
-        builder.Configuration.GetValue<ushort>("RabbitMQ:Port"),
-        builder.Configuration["RabbitMQ:VirtualHost"],
-        h =>
-        {
-            h.Username(builder.Configuration["RabbitMQ:Username"]);
-            h.Password(builder.Configuration["RabbitMQ:Password"]);
+        var mq = context.GetRequiredService<IOptions<RabbitMqOptions>>().Value;
 
-            h.UseSsl(s =>
+        cfg.Host(mq.Host, mq.Port, mq.VirtualHost, h =>
+        {
+            h.Username(mq.Username);
+            h.Password(mq.Password);
+
+            if (mq.UseSsl)
             {
-                s.Protocol = SslProtocols.Tls12;
-            });
+                h.UseSsl(s => s.Protocol = SslProtocols.Tls12);
+            }
         });
 
-        // Configure a endpoint name as needed; MassTransit will bind exchange -> queue
         cfg.ReceiveEndpoint("concurso-published-queue", e =>
         {
             e.ConfigureConsumer<ConcursoPublicadoConsumer>(context);
-            // You can set prefetch, retry, etc. here as needed:
             e.PrefetchCount = 16;
-            // basic retry policy (MassTransit middleware)
-            e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+            e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5))); // 3 tentativas, 5s
         });
     });
 
 });
 
 builder.Services.AddHealthChecks()
-    .AddDbContextCheck<ConcursoDbContext>("db-context");
+    .AddDbContextCheck<ConcursoDbContext>("db-context")
+    .AddCheck<RabbitMqHealthCheck>("rabbitmq");
 
 var app = builder.Build();
 

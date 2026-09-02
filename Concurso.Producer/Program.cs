@@ -3,8 +3,12 @@ using Concurso.Producer.Interfaces;
 using Concurso.Producer.Parsers;
 using Concurso.Producer.Services;
 using Concurso.Producer.Sources;
+using Concurso.Shared.Health;
+using Concurso.Shared.Metrics;
+using Concurso.Shared.Options;
 using MassTransit;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Extensions.Http;
 using Polly.Timeout;
@@ -23,13 +27,17 @@ var builder = Host.CreateApplicationBuilder(args);
 // Ajuste a configuração conforme necessário (sink, level, enrichers)
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
-    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
     .Enrich.FromLogContext()
-    .Enrich.WithProperty("MachineName", Environment.MachineName)
-    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
+    .WriteTo.Console()
     .CreateLogger();
-
 builder.Services.AddSerilog();
+
+// Bind options
+builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection("RabbitMQ"));
+builder.Services.Configure<CollectorOptions>(builder.Configuration.GetSection("Collector"));
+
+// Register shared metrics
+builder.Services.AddSingleton<IAppMetrics, InMemoryAppMetrics>();
 
 // -----------------------------------------------------------------------------
 // Resiliência HTTP (IHttpClientFactory + Polly)
@@ -91,31 +99,28 @@ builder.Services.AddTransient<IConcursoCollectorService, ConcursoCollectorServic
 // Para ambiente local sem SSL (localhost), basta setar "UseSsl": false
 // no appsettings.json — sem nenhuma alteração de código.
 // ─────────────────────────────────────────────────────────────────────────────
-var useSsl = builder.Configuration.GetValue<bool>("RabbitMQ:UseSsl");
-
 builder.Services.AddMassTransit(x =>
 {
     x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host(
-    builder.Configuration["RabbitMQ:Host"],
-    builder.Configuration.GetValue<ushort>("RabbitMQ:Port"),
-    builder.Configuration["RabbitMQ:VirtualHost"],
-    h =>
-    {
-        h.Username(builder.Configuration["RabbitMQ:Username"]);
-        h.Password(builder.Configuration["RabbitMQ:Password"]);
+        var mq = context.GetRequiredService<IOptions<RabbitMqOptions>>().Value;
 
-        h.UseSsl(s =>
+        cfg.Host(mq.Host, mq.Port, mq.VirtualHost, h =>
         {
-            s.Protocol = SslProtocols.Tls12;
+            h.Username(mq.Username);
+            h.Password(mq.Password);
+
+            if (mq.UseSsl)
+            {
+                h.UseSsl(s => s.Protocol = SslProtocols.Tls12);
+            }
         });
-    });
     });
 });
 
 // Health checks (registro; exposição HTTP é opcional e pode ser adicionada depois)
 builder.Services.AddHealthChecks()
+    .AddCheck<RabbitMqHealthCheck>("rabbitmq")
     .AddCheck("self", () => HealthCheckResult.Healthy("OK"));
 
 // Hosted service que periodicamente avalia health checks e loga (preparação para expor endpoint)

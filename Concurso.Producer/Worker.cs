@@ -1,8 +1,12 @@
+using Concurso.Messaging.Events;
 using Concurso.Producer.Interfaces;
 using Concurso.Producer.Services;
+using Concurso.Shared.Metrics;
+using Concurso.Shared.Options;
 using MassTransit;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System;
 using System.Diagnostics;
 using System.Threading;
@@ -24,15 +28,21 @@ public sealed class Worker : BackgroundService
     private readonly IServiceProvider _services;
     private readonly IBus _bus;
     private readonly ILogger<Worker> _logger;
+    private readonly TimeSpan _intervalo;
+    private readonly IAppMetrics _metrics;
 
     public Worker(
         ILogger<Worker> logger,
         IBus bus,
-        IServiceProvider services)
+        IServiceProvider services,
+        IOptions<CollectorOptions> collectorOptions,
+        IAppMetrics metrics)
     {
         _logger = logger;
         _bus = bus;
         _services = services;
+        _intervalo = TimeSpan.FromMinutes(collectorOptions.Value.IntervaloMinutos);
+        _metrics = metrics;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -51,37 +61,14 @@ public sealed class Worker : BackgroundService
 
                 var concursos = await aggregator.AggregateAllAsync(stoppingToken);
 
-                if (concursos.Count == 0)
+                _metrics.IncrementFound(concursos.Count);
+                _logger.LogInformation("Coleta finalizada. Encontrados {Total} concurso(s).", concursos.Count);
+
+                // Exemplo: publicar (quando for ativar) e contabilizar published
+                foreach (var concurso in concursos)
                 {
-                    _logger.LogInformation("Nenhum concurso de TI encontrado neste ciclo.");
-                }
-                else
-                {
-                    _logger.LogInformation("{Total} concurso(s) coletado(s):", concursos.Count);
-
-                    foreach (var concurso in concursos)
-                    {
-                        // Activity por item (enriquecimento para tracing)
-                        using (var act = new Activity("ProcessarConcurso"))
-                        {
-                            act.Start();
-                            act.AddTag("dedupKey", concurso.DeduplicationKey);
-                            act.AddTag("titulo", concurso.Titulo);
-
-                            // Exemplo de publicação (a ativar quando for publicar):
-                            // await _bus.Publish(new ConcursoCriadoEvent { ... }, stoppingToken);
-
-                            _logger.LogInformation(
-                                "  → [{Key}] {Titulo} | {Cargo} | {Orgao} | {Salario}",
-                                concurso.DeduplicationKey,
-                                concurso.Titulo,
-                                concurso.Cargo,
-                                concurso.Orgao,
-                                concurso.Salario);
-
-                            act.Stop();
-                        }
-                    }
+                    //await _bus.Publish(new ConcursoPublicadoEvent { ... }, stoppingToken);
+                    //_metrics.IncrementPublished();
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
