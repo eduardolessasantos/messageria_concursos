@@ -73,8 +73,16 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const res = await fetch(`${apiUrl}/api/concursos/coletar`, { method: "POST" });
       const data = await res.json();
-      showToast(data.mensagem || "Coleta realizada com sucesso!");
+      showToast(data.mensagem || "Coleta disparada! Atualizando lista...");
+
+      // Aguarda 1.5s para o consumidor processar as mensagens da fila e atualiza
+      await new Promise(r => setTimeout(r, 1500));
       await carregarConcursos();
+      
+      // Segunda checagem 2s depois para garantir que todas as mensagens do lote foram salvas
+      setTimeout(async () => {
+        await carregarConcursos();
+      }, 2000);
     } catch (err) {
       showToast("Erro ao acionar coleta: " + err.message);
     } finally {
@@ -90,6 +98,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const res = await fetch(`${apiUrl}/api/concursos/test-email?orgao=Dataprev&cargo=Analista+de+TI`, { method: "POST" });
       const data = await res.json();
       showToast(data.mensagem || "Evento de teste disparado com sucesso!");
+
+      // Aguarda 1.2s para o consumidor salvar o edital no banco e atualiza a tabela automaticamente
+      await new Promise(r => setTimeout(r, 1200));
+      await carregarConcursos();
     } catch (err) {
       showToast("Erro no disparo de teste: " + err.message);
     } finally {
