@@ -1,0 +1,376 @@
+@page "/"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject NotificacaoStateService StateService
+@inject ConcursoApiClient ApiClient
+@inject ISnackbar Snackbar
+
+<PageTitle>ConcursosTI - Painel em Tempo Real</PageTitle>
+
+<MudGrid Spacing="3" Class="mb-6">
+    <!-- Banner de Boas-vindas / Estatísticas Rápidas -->
+    <MudItem xs="12">
+        <MudPaper Elevation="2" Class="pa-4 pa-md-5 rounded-lg" Style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(6, 182, 212, 0.12) 100%); border: 1px solid rgba(99, 102, 241, 0.2);">
+            <div class="d-flex flex-column flex-md-row justify-space-between align-start align-md-center gap-4">
+                <div>
+                    <MudText Typo="Typo.h5" Class="font-weight-bold d-flex align-center gap-2">
+                        <MudIcon Icon="@Icons.Material.Filled.Hub" Color="Color.Primary" />
+                        Pipeline de Mensageria & Editais de TI em Tempo Real
+                    </MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-1">
+                        Monitoramento assíncrono via <strong>RabbitMQ + MassTransit</strong> com disparo real de e-mails via <strong>Resend</strong>.
+                    </MudText>
+                </div>
+                <div class="d-flex align-center gap-3">
+                    <MudChip T="string" Color="Color.Primary" Variant="Variant.Filled" Icon="@Icons.Material.Filled.Work">
+                        @(_concursos?.Count ?? 0) Editais de TI
+                    </MudChip>
+                    <MudChip T="string" Color="Color.Secondary" Variant="Variant.Filled" Icon="@Icons.Material.Filled.DynamicFeed">
+                        @(StateService.Logs.Count) Eventos Ao Vivo
+                    </MudChip>
+                    <MudChip T="string" Color="Color.Success" Variant="Variant.Filled" Icon="@Icons.Material.Filled.Mail">
+                        Resend Ativo
+                    </MudChip>
+                </div>
+            </div>
+        </MudPaper>
+    </MudItem>
+
+    <!-- COLUNA ESQUERDA: Ações e Disparos -->
+    <MudItem xs="12" md="5" lg="5">
+        <MudStack Spacing="3">
+            <!-- Card de Disparo Teste -->
+            <MudCard Elevation="3" Class="rounded-lg">
+                <MudCardHeader>
+                    <CardHeaderAvatar>
+                        <MudAvatar Color="Color.Primary" Variant="Variant.Filled">
+                            <MudIcon Icon="@Icons.Material.Filled.Send" />
+                        </MudAvatar>
+                    </CardHeaderAvatar>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6" Class="font-weight-bold">Simular Edital & Envio</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Publica ConcursoPublicadoEvent e dispara e-mail</MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
+
+                <MudCardContent>
+                    <MudTextField @bind-Value="_testeOrgao"
+                                  Label="Órgão / Entidade"
+                                  Placeholder="Ex: Dataprev, TJERJ, Receita Federal"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Class="mb-3" />
+
+                    <MudTextField @bind-Value="_testeCargo"
+                                  Label="Cargo de TI"
+                                  Placeholder="Ex: Analista de TI (Engenharia de Software)"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Class="mb-3" />
+
+                    <MudTextField @bind-Value="_testeSalario"
+                                  Label="Remuneração / Salário"
+                                  Placeholder="Ex: R$ 15.300,00"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Class="mb-3" />
+
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               FullWidth="true"
+                               StartIcon="@Icons.Material.Filled.RocketLaunch"
+                               Disabled="_processandoTeste"
+                               OnClick="DispararTesteAsync"
+                               Class="py-2 mt-2">
+                        @if (_processandoTeste)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                            <span>Disparando...</span>
+                        }
+                        else
+                        {
+                            <span>Disparar Notificação Teste</span>
+                        }
+                    </MudButton>
+                </MudCardContent>
+            </MudCard>
+
+            <!-- Card de Coleta Imediata -->
+            <MudCard Elevation="3" Class="rounded-lg">
+                <MudCardHeader>
+                    <CardHeaderAvatar>
+                        <MudAvatar Color="Color.Secondary" Variant="Variant.Filled">
+                            <MudIcon Icon="@Icons.Material.Filled.CloudSync" />
+                        </MudAvatar>
+                    </CardHeaderAvatar>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6" Class="font-weight-bold">Coleta Imediata PCI Concursos</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Executa crawler de TI e publica novos editais</MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
+
+                <MudCardContent>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+                        Varre a fonte de concursos em busca de oportunidades com palavras-chave de TI (desenvolvedor, cloud, dba, dados, suporte) e publica cada edital novo no broker.
+                    </MudText>
+
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Secondary"
+                               FullWidth="true"
+                               StartIcon="@Icons.Material.Filled.Sync"
+                               Disabled="_coletando"
+                               OnClick="ColetarAgoraAsync"
+                               Class="py-2">
+                        @if (_coletando)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                            <span>Varrendo Editais Online...</span>
+                        }
+                        else
+                        {
+                            <span>Coletar Concursos de TI Agora</span>
+                        }
+                    </MudButton>
+                </MudCardContent>
+            </MudCard>
+        </MudStack>
+    </MudItem>
+
+    <!-- COLUNA DIREITA: Timeline ao Vivo (Feed de Mensageria) -->
+    <MudItem xs="12" md="7" lg="7">
+        <MudCard Elevation="3" Class="rounded-lg h-100 d-flex flex-column">
+            <MudCardHeader Class="pb-2">
+                <CardHeaderAvatar>
+                    <MudAvatar Color="Color.Tertiary" Variant="Variant.Filled">
+                        <MudIcon Icon="@Icons.Material.Filled.Sensors" />
+                    </MudAvatar>
+                </CardHeaderAvatar>
+                <CardHeaderContent>
+                    <div class="d-flex align-center gap-2">
+                        <MudText Typo="Typo.h6" Class="font-weight-bold">Timeline de Eventos ao Vivo</MudText>
+                        <span class="live-dot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background-color:#10b981;"></span>
+                    </div>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Consome da fila <code>concurso-web-queue</code> via MassTransit</MudText>
+                </CardHeaderContent>
+                <CardHeaderActions>
+                    <MudTooltip Text="Limpar eventos da tela">
+                        <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Color="Color.Default" OnClick="LimparLogs" />
+                    </MudTooltip>
+                </CardHeaderActions>
+            </MudCardHeader>
+
+            <MudCardContent Class="flex-grow-1 pa-4">
+                @if (StateService.Logs.Count == 0)
+                {
+                    <div class="d-flex flex-column align-center justify-center py-12 text-center">
+                        <MudIcon Icon="@Icons.Material.Filled.HourglassEmpty" Size="Size.Large" Color="Color.Secondary" Class="mb-3" />
+                        <MudText Typo="Typo.subtitle1" Color="Color.Secondary">Aguardando eventos do broker...</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Dispare um teste ou faça uma coleta para ver o pipeline executando ao vivo!</MudText>
+                    </div>
+                }
+                else
+                {
+                    <div class="timeline-container">
+                        <MudTimeline TimelineOrientation="TimelineOrientation.Vertical" TimelinePosition="TimelinePosition.Start">
+                            @foreach (var log in StateService.Logs)
+                            {
+                                <MudTimelineItem Color="@GetStatusColor(log.Status)" Elevation="1" Class="fade-in-slide mb-2">
+                                    <ItemOpposite>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                            @log.Data.ToLocalTime().ToString("HH:mm:ss")
+                                        </MudText>
+                                    </ItemOpposite>
+                                    <ItemContent>
+                                        <MudPaper Elevation="1" Class="pa-3 rounded-lg timeline-item-card" Style="background-color: rgba(30, 41, 59, 0.6);">
+                                            <div class="d-flex align-center justify-space-between mb-1">
+                                                <MudChip T="string" Color="@GetStatusColor(log.Status)" Size="Size.Small" Variant="Variant.Filled" Icon="@GetStatusIcon(log.Status)">
+                                                    @log.Status
+                                                </MudChip>
+                                                <MudText Typo="Typo.caption" Style="font-family: monospace;" Color="Color.Secondary">
+                                                    @log.Tipo
+                                                </MudText>
+                                            </div>
+                                            <MudText Typo="Typo.body2" Class="mt-1" Style="font-size: 0.875rem;">
+                                                @log.Detalhe
+                                            </MudText>
+                                        </MudPaper>
+                                    </ItemContent>
+                                </MudTimelineItem>
+                            }
+                        </MudTimeline>
+                    </div>
+                }
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+
+    <!-- LINHA INFERIOR: Tabela de Editais de TI Detectados -->
+    <MudItem xs="12">
+        <MudCard Elevation="3" Class="rounded-lg mt-4">
+            <MudCardHeader>
+                <CardHeaderAvatar>
+                    <MudAvatar Color="Color.Primary" Variant="Variant.Filled">
+                        <MudIcon Icon="@Icons.Material.Filled.LibraryBooks" />
+                    </MudAvatar>
+                </CardHeaderAvatar>
+                <CardHeaderContent>
+                    <MudText Typo="Typo.h6" Class="font-weight-bold">Editais de TI Registrados na Base</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Persistidos pelo Concurso.Consumer via EF Core SQLite</MudText>
+                </CardHeaderContent>
+                <CardHeaderActions>
+                    <MudButton StartIcon="@Icons.Material.Filled.Refresh" Variant="Variant.Text" Color="Color.Primary" OnClick="CarregarConcursosAsync">
+                        Atualizar
+                    </MudButton>
+                </CardHeaderActions>
+            </MudCardHeader>
+
+            <MudCardContent Class="pa-0">
+                <MudTable Items="@_concursos" Dense="true" Hover="true" Striped="true" Filter="new Func<ConcursoDto,bool>(FiltroConcursos)" Class="elevation-0">
+                    <ToolBarContent>
+                        <MudText Typo="Typo.subtitle2">Filtro Rápido</MudText>
+                        <MudSpacer />
+                        <MudTextField @bind-Value="_busca" Placeholder="Buscar por cargo, órgão ou remuneração..." Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0" Immediate="true" />
+                    </ToolBarContent>
+                    <HeaderContent>
+                        <MudTh>Órgão</MudTh>
+                        <MudTh>Cargo de TI</MudTh>
+                        <MudTh>Remuneração</MudTh>
+                        <MudTh>Fonte</MudTh>
+                        <MudTh>Capturado Em</MudTh>
+                        <MudTh Style="text-align: center;">Edital</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Órgão">
+                            <MudText Typo="Typo.body2" Class="font-weight-bold">@context.Orgao</MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Cargo">
+                            <MudChip T="string" Color="Color.Primary" Size="Size.Small" Variant="Variant.Outlined">
+                                @context.Cargo
+                            </MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="Remuneração">
+                            <MudText Typo="Typo.body2" Color="Color.Success" Class="font-weight-bold">
+                                @context.Salario
+                            </MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Fonte">@context.Fonte</MudTd>
+                        <MudTd DataLabel="Captura">@context.DataCaptura.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</MudTd>
+                        <MudTd Style="text-align: center;">
+                            <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Secondary" Size="Size.Small" Href="@context.Link" Target="_blank" aria-label="Abrir Edital" />
+                        </MudTd>
+                    </RowTemplate>
+                    <PagerContent>
+                        <MudTablePager RowsPerPageString="Linhas por página:" />
+                    </PagerContent>
+                </MudTable>
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private List<ConcursoDto> _concursos = new();
+    private string _busca = "";
+    private bool _processandoTeste = false;
+    private bool _coletando = false;
+
+    private string _testeOrgao = "Dataprev";
+    private string _testeCargo = "Analista de Tecnologia da Informação (DevOps & Cloud)";
+    private string _testeSalario = "R$ 15.300,00";
+
+    protected override async Task OnInitializedAsync()
+    {
+        StateService.OnChange += OnStateChanged;
+        await CarregarConcursosAsync();
+    }
+
+    private async void OnStateChanged()
+    {
+        await InvokeAsync(() =>
+        {
+            StateHasChanged();
+        });
+    }
+
+    private async Task CarregarConcursosAsync()
+    {
+        _concursos = await ApiClient.GetConcursosAsync();
+    }
+
+    private async Task DispararTesteAsync()
+    {
+        _processandoTeste = true;
+        try
+        {
+            var ok = await ApiClient.DispararTesteAsync(_testeOrgao, _testeCargo, _testeSalario);
+            if (ok)
+            {
+                Snackbar.Add("Evento de teste publicado no RabbitMQ! Acompanhe a timeline.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Falha ao disparar evento de teste. Verifique se a API está no ar.", Severity.Error);
+            }
+        }
+        finally
+        {
+            _processandoTeste = false;
+        }
+    }
+
+    private async Task ColetarAgoraAsync()
+    {
+        _coletando = true;
+        try
+        {
+            var resultado = await ApiClient.ColetarAgoraAsync();
+            Snackbar.Add(resultado, Severity.Info);
+            await Task.Delay(1500);
+            await CarregarConcursosAsync();
+        }
+        finally
+        {
+            _coletando = false;
+        }
+    }
+
+    private void LimparLogs()
+    {
+        StateService.LimparLogs();
+        Snackbar.Add("Logs da tela limpos.", Severity.Normal);
+    }
+
+    private bool FiltroConcursos(ConcursoDto c)
+    {
+        if (string.IsNullOrWhiteSpace(_busca)) return true;
+        if (c.Cargo.Contains(_busca, StringComparison.OrdinalIgnoreCase)) return true;
+        if (c.Orgao.Contains(_busca, StringComparison.OrdinalIgnoreCase)) return true;
+        if (c.Salario.Contains(_busca, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    private Color GetStatusColor(string status) => status switch
+    {
+        "Processando" => Color.Info,
+        "Tentando" => Color.Warning,
+        "Enviado" => Color.Success,
+        "Falha" => Color.Error,
+        "Publicado" => Color.Tertiary,
+        _ => Color.Default
+    };
+
+    private string GetStatusIcon(string status) => status switch
+    {
+        "Processando" => Icons.Material.Filled.Sync,
+        "Tentando" => Icons.Material.Filled.HourglassTop,
+        "Enviado" => Icons.Material.Filled.CheckCircle,
+        "Falha" => Icons.Material.Filled.Error,
+        "Publicado" => Icons.Material.Filled.Campaign,
+        _ => Icons.Material.Filled.Info
+    };
+
+    public void Dispose()
+    {
+        StateService.OnChange -= OnStateChanged;
+    }
+}

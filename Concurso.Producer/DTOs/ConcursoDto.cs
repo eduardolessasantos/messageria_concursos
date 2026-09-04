@@ -40,10 +40,14 @@ public sealed record ConcursoDto
     public required DateTimeOffset DataCaptura { get; init; }
 
     /// <summary>
-    /// Fonte de origem do concurso (ex: "PCI Concursos", "QConcursos").
+    /// Fonte de origem do concurso (ex: "PCI Concursos", "Gran Cursos", "Mock").
     /// Útil para rastrear de qual crawler o dado veio e calibrar parsers.
     /// </summary>
     public required string Fonte { get; init; }
 
     public string? Descricao { get; set; }
+
+    public int RelevanciaScore { get; init; } = 1;
+
+    public string[] KeywordsEncontradas { get; init; } = Array.Empty<string>();
 }

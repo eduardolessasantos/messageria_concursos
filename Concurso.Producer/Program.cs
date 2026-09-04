@@ -80,8 +80,22 @@ builder.Services
     .AddPolicyHandler(timeoutPolicy)
     .AddPolicyHandler(retryPolicy);
 
+builder.Services
+    .AddHttpClient(Concurso.Producer.Sources.GranCursosSource.HttpClientName, client =>
+    {
+        client.BaseAddress = new Uri("https://www.grancursosonline.com.br");
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (compatible; ConcursosTI-Bot/1.0)");
+        client.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml");
+    })
+    .SetHandlerLifetime(TimeSpan.FromMinutes(5))
+    .AddPolicyHandler(timeoutPolicy)
+    .AddPolicyHandler(retryPolicy);
+
 // Registrations relacionados a fontes e agregador
 builder.Services.AddTransient<IConcursoSource, Concurso.Producer.Sources.PciConcursosSource>();
+builder.Services.AddTransient<IConcursoSource, Concurso.Producer.Sources.GranCursosSource>();
+builder.Services.AddTransient<IConcursoSource, Concurso.Producer.Sources.MockConcursoSource>();
 builder.Services.AddTransient<IConcursoAggregationService, Concurso.Producer.Services.ConcursoAggregationService>();
 
 // ─────────────────────────────────────────────────────────────────────────────

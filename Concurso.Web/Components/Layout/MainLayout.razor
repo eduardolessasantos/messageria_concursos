@@ -1,0 +1,98 @@
+@inherits LayoutComponentBase
+
+<MudThemeProvider Theme="_theme" IsDarkMode="_isDarkMode" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="3" Dense="false" Class="px-6 blur-appbar">
+        <MudIcon Icon="@Icons.Material.Filled.Terminal" Color="Color.Primary" Size="Size.Large" Class="mr-2 pulse-icon" />
+        <MudText Typo="Typo.h5" Class="brand-title font-weight-bold">
+            <span class="brand-accent">Concursos</span>TI
+        </MudText>
+        <MudChip T="string" Color="Color.Primary" Size="Size.Small" Variant="Variant.Filled" Class="ml-3 font-weight-bold">v1</MudChip>
+        <MudChip T="string" Color="Color.Success" Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Sensors" Class="ml-2 live-badge">Pipeline Ativo</MudChip>
+
+        <MudSpacer />
+
+        <div class="d-none d-md-flex align-center gap-3 mr-4">
+            <MudButton Href="http://localhost:5000" Target="_blank" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Code" Color="Color.Inherit" Size="Size.Small">
+                Swagger API
+            </MudButton>
+            <MudButton Href="http://localhost:15672" Target="_blank" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.SwapHoriz" Color="Color.Inherit" Size="Size.Small">
+                RabbitMQ
+            </MudButton>
+            <MudButton Href="http://localhost:8025" Target="_blank" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Inbox" Color="Color.Inherit" Size="Size.Small">
+                Mailpit
+            </MudButton>
+            <MudButton Href="https://resend.com/emails" Target="_blank" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.MarkEmailRead" Color="Color.Inherit" Size="Size.Small">
+                Resend
+            </MudButton>
+        </div>
+
+        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                       Color="Color.Inherit"
+                       OnClick="ToggleDarkMode"
+                       aria-label="Alternar Tema" />
+    </MudAppBar>
+
+    <MudMainContent Class="px-4 px-md-6 pb-8 main-wrapper" Style="padding-top: calc(var(--mud-appbar-height) + 32px);">
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="my-2">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private bool _isDarkMode = true;
+
+    private readonly MudTheme _theme = new()
+    {
+        PaletteDark = new PaletteDark()
+        {
+            Primary = "#6366f1", // Indigo
+            PrimaryContrastText = "#ffffff",
+            Secondary = "#06b6d4", // Cyan
+            Tertiary = "#a855f7", // Purple
+            Background = "#0f172a", // Slate 900
+            Surface = "#1e293b", // Slate 800
+            AppbarBackground = "rgba(30, 41, 59, 0.85)",
+            AppbarText = "#f8fafc",
+            TextPrimary = "#f8fafc",
+            TextSecondary = "#94a3b8",
+            Success = "#10b981",
+            Warning = "#f59e0b",
+            Error = "#ef4444",
+            Info = "#38bdf8",
+            DrawerBackground = "#1e293b",
+            TableLines = "rgba(148, 163, 184, 0.12)",
+            Divider = "rgba(148, 163, 184, 0.12)",
+            ActionDefault = "#94a3b8"
+        },
+        PaletteLight = new PaletteLight()
+        {
+            Primary = "#4f46e5",
+            Secondary = "#0891b2",
+            Background = "#f8fafc",
+            Surface = "#ffffff",
+            AppbarBackground = "rgba(255, 255, 255, 0.9)",
+            AppbarText = "#0f172a",
+            TextPrimary = "#0f172a",
+            TextSecondary = "#64748b",
+            Success = "#059669",
+            Warning = "#d97706",
+            Error = "#dc2626",
+            Info = "#0284c7"
+        },
+        LayoutProperties = new LayoutProperties()
+        {
+            DefaultBorderRadius = "12px"
+        }
+    };
+
+    private void ToggleDarkMode()
+    {
+        _isDarkMode = !_isDarkMode;
+    }
+}

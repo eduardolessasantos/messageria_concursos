@@ -2,7 +2,9 @@ using Concurso.Producer.DTOs;
 using Concurso.Producer.Interfaces;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,27 +12,12 @@ using System.Threading.Tasks;
 namespace Concurso.Producer.Services;
 
 /// <summary>
-/// Orquestra a coleta de concursos: faz a requisição HTTP, delega o parsing
-/// ao <see cref="IConcursoHtmlParser"/> e retorna os DTOs prontos para uso.
-///
-/// Responsabilidades:
-///   1. Buscar o HTML da fonte via HttpClient (injetado e nomeado)
-///   2. Repassar o HTML ao parser
-///   3. Logar métricas e erros da coleta
-///   4. Preparar o campo DeduplicationKey para checagem futura
-///
-/// O que este serviço NÃO faz:
-///   - Persistir dados
-///   - Publicar eventos
-///   - Decidir se o concurso é novo ou duplicado (responsabilidade futura)
+/// Orquestra a coleta de concursos na fonte PCI Concursos com suporte a paginação resiliente.
 /// </summary>
 public sealed class ConcursoCollectorService : IConcursoCollectorService
 {
-    // Nome registrado no DI para o HttpClient tipado desta fonte
     public const string HttpClientName = "PciConcursos";
-
-    // URL da listagem de concursos de TI — pode ser movida para appsettings
-    private const string UrlListagem = "https://www.pciconcursos.com.br/concursos/";
+    private const string BaseUrl = "https://www.pciconcursos.com.br/concursos/";
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConcursoHtmlParser _parser;
@@ -49,66 +36,56 @@ public sealed class ConcursoCollectorService : IConcursoCollectorService
     /// <inheritdoc />
     public async Task<IReadOnlyList<ConcursoDto>> ColetarAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Iniciando coleta de concursos. Fonte: {Fonte} | URL: {Url}",
-            HttpClientName, UrlListagem);
+        _logger.LogInformation("Iniciando coleta paginada de concursos (páginas 1 a 3). Fonte: {Fonte}", HttpClientName);
 
-        string html;
+        var paginas = new[] { BaseUrl, $"{BaseUrl}2", $"{BaseUrl}3" };
+        var dictUnicos = new ConcurrentDictionary<string, ConcursoDto>(StringComparer.OrdinalIgnoreCase);
 
-        try
+        var tasks = paginas.Select(async url =>
         {
-            html = await BuscarHtmlAsync(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            // Falha de rede não deve derrubar o Worker — loga e retorna lista vazia
-            // O Worker tentará novamente no próximo ciclo
-            _logger.LogError(ex,
-                "Falha ao buscar HTML da fonte. Fonte: {Fonte} | URL: {Url}",
-                HttpClientName, UrlListagem);
-            return Array.Empty<ConcursoDto>();
-        }
+            try
+            {
+                var html = await BuscarHtmlAsync(url, cancellationToken);
+                if (string.IsNullOrWhiteSpace(html))
+                {
+                    return;
+                }
 
-        var concursos = _parser.Parse(html, HttpClientName);
+                var parseados = _parser.Parse(html, HttpClientName);
+                foreach (var c in parseados)
+                {
+                    dictUnicos.TryAdd(c.DeduplicationKey, c);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Falha ao coletar página {Url}. Prosseguindo com demais páginas.", url);
+            }
+        });
+
+        await Task.WhenAll(tasks);
+
+        var resultado = dictUnicos.Values.OrderByDescending(c => c.RelevanciaScore).ToList();
 
         _logger.LogInformation(
-            "Coleta finalizada. {Total} concurso(s) de TI encontrado(s). Fonte: {Fonte}",
-            concursos.Count, HttpClientName);
+            "Coleta paginada finalizada. {Total} concurso(s) de TI unificados e classificados. Fonte: {Fonte}",
+            resultado.Count, HttpClientName);
 
-        // Log individual apenas em Debug para não poluir o log em produção
-        if (_logger.IsEnabled(LogLevel.Debug))
-        {
-            foreach (var c in concursos)
-            {
-                _logger.LogDebug(
-                    "Concurso coletado | Key: {Key} | Titulo: {Titulo} | Cargo: {Cargo} | Orgao: {Orgao}",
-                    c.DeduplicationKey, c.Titulo, c.Cargo, c.Orgao);
-            }
-        }
-
-        return concursos;
+        return resultado.AsReadOnly();
     }
 
-    // -------------------------------------------------------------------------
-    // Requisição HTTP
-    // -------------------------------------------------------------------------
-
-    private async Task<string> BuscarHtmlAsync(CancellationToken cancellationToken)
+    private async Task<string> BuscarHtmlAsync(string url, CancellationToken cancellationToken)
     {
-        // Usa IHttpClientFactory para respeitar o ciclo de vida de conexões TCP
-        // e aplicar a política de retry configurada no Program.cs
         var client = _httpClientFactory.CreateClient(HttpClientName);
+        _logger.LogDebug("Requisição GET iniciada. URL: {Url}", url);
 
-        _logger.LogDebug("Requisição GET iniciada. URL: {Url}", UrlListagem);
-
-        var response = await client.GetAsync(UrlListagem, cancellationToken);
-
+        var response = await client.GetAsync(url, cancellationToken);
         response.EnsureSuccessStatusCode();
 
         var html = await response.Content.ReadAsStringAsync(cancellationToken);
-
         _logger.LogDebug(
-            "HTML recebido. Status: {Status} | Tamanho: {Size} bytes",
-            (int)response.StatusCode, html.Length);
+            "HTML recebido. URL: {Url} | Status: {Status} | Tamanho: {Size} bytes",
+            url, (int)response.StatusCode, html.Length);
 
         return html;
     }

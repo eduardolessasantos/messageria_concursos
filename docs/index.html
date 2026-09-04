@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ConcursosTI - Portal de Oportunidades & Mensageria</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/svg+xml" href="loading.svg">
+</head>
+<body>
+
+  <!-- ======================================================================
+       TELA DE CARREGAMENTO BLOQUEANTE (EXIBE GIF E SÓ LIBERA APÓS SAÚDE OK)
+       ====================================================================== -->
+  <div id="loading-screen" class="loading-screen">
+    <div class="loading-container">
+      <img src="loading.svg" alt="Carregando..." class="loading-gif">
+      
+      <h2 class="loading-title">Inicializando Ecossistema ConcursosTI</h2>
+      <p class="loading-subtitle">
+        Aguardando a subida e verificação de integridade de todos os serviços. A navegação será liberada automaticamente assim que todos os projetos estiverem operacionais.
+      </p>
+
+      <!-- Checklist de Dependências em Tempo Real -->
+      <div class="checklist-container">
+        <div class="checklist-item">
+          <div class="checklist-label">
+            <span>🌐</span>
+            <span>Concurso.Api (Minimal API REST)</span>
+          </div>
+          <span id="status-api" class="status-badge waiting">Aguardando...</span>
+        </div>
+
+        <div class="checklist-item">
+          <div class="checklist-label">
+            <span>🗄️</span>
+            <span>Banco de Dados Relacional (MySQL / SQLite)</span>
+          </div>
+          <span id="status-db" class="status-badge waiting">Aguardando...</span>
+        </div>
+
+        <div class="checklist-item">
+          <div class="checklist-label">
+            <span>🐰</span>
+            <span>Broker de Mensageria (RabbitMQ / MassTransit)</span>
+          </div>
+          <span id="status-broker" class="status-badge waiting">Aguardando...</span>
+        </div>
+
+        <div class="checklist-item">
+          <div class="checklist-label">
+            <span>⚙️</span>
+            <span>Workers (Notification Resend & Crawler Producer)</span>
+          </div>
+          <span id="status-workers" class="status-badge waiting">Aguardando...</span>
+        </div>
+      </div>
+
+      <div id="timer-display" class="timer-box">
+        Tempo de espera: 00:00s (Serviços gratuitos no Render levam ~45s no cold start)
+      </div>
+
+      <!-- Configuração de Conexão com a API -->
+      <div class="api-url-bar">
+        <input type="text" id="api-url-input" class="api-url-input" placeholder="URL da API (ex: https://concursos-api.onrender.com ou http://localhost:5000)">
+        <button id="btn-save-url" class="btn-small">Alterar</button>
+        <button id="btn-retry-now" class="btn-small" style="background:var(--secondary)">Verificar Agora</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================================
+       PAINEL DE NAVEGAÇÃO COMPLETO (LIBERADO APÓS CARREGAMENTO)
+       ====================================================================== -->
+  <main id="main-dashboard" class="main-dashboard">
+    
+    <!-- Top Header -->
+    <header class="top-header">
+      <div class="brand-title">
+        <span>🚀</span>
+        <span>ConcursosTI</span>
+      </div>
+      <div class="brand-badge">
+        <span class="pulse-dot"></span>
+        <span>Todos os Projetos Conectados e Operacionais</span>
+      </div>
+    </header>
+
+    <!-- Métricas Rápidas -->
+    <section class="grid-cards">
+      <div class="metric-card">
+        <div class="metric-label">Editais de TI na Base</div>
+        <div id="metric-total-concursos" class="metric-value">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Status da Minimal API</div>
+        <div id="metric-api-status" class="metric-value" style="color:var(--success)">Online</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Mensageria MassTransit</div>
+        <div id="metric-broker-status" class="metric-value" style="color:#38bdf8">RabbitMQ Ativo</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Persistência Relacional</div>
+        <div id="metric-db-status" class="metric-value" style="color:#a78bfa">MySQL Conectado</div>
+      </div>
+    </section>
+
+    <!-- Ações Rápidas e Links de Navegação -->
+    <section class="actions-bar">
+      <button id="btn-coletar" class="btn-primary">
+        ⚡ Executar Coleta Imediata
+      </button>
+
+      <button id="btn-test-email" class="btn-primary" style="background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);">
+        ✉️ Disparar E-mail Teste
+      </button>
+
+      <a id="link-swagger" href="#" target="_blank" class="btn-outline">
+        📘 Swagger API REST
+      </a>
+
+      <a id="link-health" href="#" target="_blank" class="btn-outline">
+        🩺 Health Check JSON
+      </a>
+
+      <a href="http://localhost:5001" target="_blank" class="btn-outline">
+        📊 Painel Blazor Web (Local)
+      </a>
+    </section>
+
+    <!-- Tabela de Oportunidades de TI -->
+    <section class="table-container">
+      <div class="table-header-flex">
+        <h3>Editais de Tecnologia da Informação Triados</h3>
+        <input type="text" id="search-input" class="search-input" placeholder="🔍 Filtrar cargo, órgão ou salário...">
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Órgão</th>
+            <th>Cargo de TI</th>
+            <th>Remuneração</th>
+            <th>Fonte</th>
+            <th>Capturado Em</th>
+            <th style="text-align: center;">Ações</th>
+          </tr>
+        </thead>
+        <tbody id="concursos-table-body">
+          <!-- Conteúdo gerado dinamicamente pelo app.js -->
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <div id="toast-msg" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

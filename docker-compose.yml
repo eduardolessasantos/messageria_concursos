@@ -1,4 +1,16 @@
 services:
+  mysql:
+    image: mysql:8.0
+    container_name: concurso-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: concursos_ti
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysqldata:/var/lib/mysql
+
   rabbitmq:
     image: rabbitmq:3-management
     container_name: concurso-rabbitmq
@@ -15,3 +27,14 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  mailpit:
+    image: axllent/mailpit
+    container_name: concurso-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  mysqldata:

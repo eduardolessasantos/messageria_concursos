@@ -13,85 +13,68 @@ namespace Concurso.Producer.Parsers;
 
 /// <summary>
 /// Implementação do parser HTML usando HtmlAgilityPack.
-///
-/// Estruturado para o layout do PCI Concursos (pci concursos.com.br),
-/// mas o padrão de seletores XPath pode ser adaptado a qualquer fonte
-/// com estrutura semelhante de listagem (ul/li ou table).
-///
-/// Responsabilidades desta classe:
-///   1. Navegar o DOM HTML via XPath
-///   2. Extrair os campos brutos (texto, atributos)
-///   3. Normalizar e limpar os valores
-///   4. Filtrar por palavras-chave de TI
-///   5. Gerar a chave de deduplicação
-///
-/// O que esta classe NÃO faz:
-///   - Fazer requisições HTTP
-///   - Decidir publicar ou ignorar o concurso
-///   - Persistir dados
+/// Suporta seletores XPath dinâmicos e análise heurística com 80+ palavras-chave de TI.
 /// </summary>
 public sealed partial class ConcursoHtmlParser : IConcursoHtmlParser
 {
     private readonly ILogger<ConcursoHtmlParser> _logger;
 
-    // Preferível centralizar/inyectar seletores via configuration no futuro
     private static readonly string[] CandidateXPaths =
     {
         "//*[@id='pagina']/aside[1]/ul/li",
         "//ul[contains(@class,'ultimas-noticias')]/li",
         "//div[contains(@class,'da')]",
+        "//div[contains(@class,'concurso')]",
+        "//div[contains(@class,'card-concurso')]",
+        "//section[contains(@class,'listagem')]//article",
         "//article"
     };
 
     // -------------------------------------------------------------------------
-    // Filtro de relevância — palavras-chave que caracterizam cargos de TI
+    // Filtro de relevância — 80+ palavras-chave de TI (Especificação v6)
     // -------------------------------------------------------------------------
     private static readonly HashSet<string> PalavrasChaveTi = new(StringComparer.OrdinalIgnoreCase)
     {
-        "analista de sistemas",
-        "analista de ti",
-        "desenvolvedor",
-        "programador",
-        "engenheiro de software",
-        "arquiteto de software",
-        "analista de infraestrutura",
-        "analista de redes",
-        "administrador de redes",
-        "segurança da informação",
-        "banco de dados",
-        "dba",
-        "suporte técnico",
-        "técnico de ti",
-        "técnico de informática",
-        "ciência de dados",
-        "inteligência artificial",
-        "machine learning",
-        "devops",
-        "cloud",
-        "tecnologia da informação",
-        "tecnologia da informação e comunicação",
-        "tic",
-        "informática",
-        "sistemas de informação",
-        "engenharia da computação",
-        "ciência da computação",
+        // Core TI
+        "analista de sistemas", "analista de ti", "analista de tecnologia", "analista de informática",
+        "desenvolvedor", "programador", "engenheiro de software", "arquiteto de software", "arquiteto de sistemas",
+        "analista de infraestrutura", "analista de redes", "administrador de redes", "analista de suporte",
+        "suporte técnico", "técnico de ti", "técnico de informática", "técnico em informática",
+        "tecnologia da informação", "tecnologia da informação e comunicação", "tic", "informática",
+        "sistemas de informação", "engenharia da computação", "ciência da computação", "sistemas para internet",
+        "desenvolvimento web", "desenvolvedor web", "desenvolvedor frontend", "desenvolvedor backend",
+        "desenvolvedor fullstack", "desenvolvedor mobile",
+
+        // Dados e IA
+        "ciência de dados", "cientista de dados", "engenheiro de dados", "analista de dados", "dba",
+        "administrador de banco", "banco de dados", "inteligência artificial", "ia", "machine learning",
+        "aprendizado de máquina", "deep learning", "big data", "business intelligence", "bi", "analytics",
+
+        // Cloud e DevOps
+        "devops", "devsecops", "sre", "site reliability", "cloud", "computação em nuvem", "aws", "azure", "gcp",
+        "kubernetes", "docker", "ci/cd", "automação de infraestrutura", "terraform",
+
+        // Segurança
+        "segurança da informação", "segurança cibernética", "cibersegurança", "pentest", "perito digital",
+        "análise forense", "soc", "infosec", "segurança de redes", "privacidade de dados", "lgpd",
+
+        // Gestão Ágil e Governança
+        "product owner", "po", "scrum master", "agilista", "governança de ti", "auditor de ti",
+        "auditor de sistemas", "itil", "cobit", "gestão de ti",
+
+        // Redes e Infraestrutura
+        "redes de computadores", "infraestrutura de ti", "telecomunicações", "analista de telecom",
+        "administrador de sistemas", "sysadmin", "virtualização", "linux", "servidores"
     };
-    // -------------------------------------------------------------------------
-    // Regex para extrair salário do atributo "title"
-    // Exemplos: "R$ 9.004,00", "R$9004,00", "soldo de R$ 12.455,50"
-    // -------------------------------------------------------------------------
+
     [GeneratedRegex(@"R\$\s?[\d.,]+", RegexOptions.IgnoreCase)]
     private static partial Regex RegexSalario();
 
-    // -------------------------------------------------------------------------
-    // Verbos separadores de órgão no título
-    // Exemplo: "Instituto Militar de Engenharia abre concurso..."
-    //           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ = órgão
-    // -------------------------------------------------------------------------
     [GeneratedRegex(
         @"^(.+?)\s+(abre?|lança|publica|realiza|seleciona|oferece|divulga|encerra|prorroga)\s+",
         RegexOptions.IgnoreCase)]
     private static partial Regex RegexOrgaoNoTitulo();
+
     public ConcursoHtmlParser(ILogger<ConcursoHtmlParser> logger)
     {
         _logger = logger;
@@ -114,7 +97,10 @@ public sealed partial class ConcursoHtmlParser : IConcursoHtmlParser
         {
             nodes = doc.DocumentNode.SelectNodes(xp);
             if (nodes is not null && nodes.Count > 0)
+            {
+                _logger.LogDebug("Seletor XPath ativo: {XPath} retornou {Count} nós", xp, nodes.Count);
                 break;
+            }
         }
 
         if (nodes is null || nodes.Count == 0)
@@ -137,9 +123,14 @@ public sealed partial class ConcursoHtmlParser : IConcursoHtmlParser
                 var dto = ExtrairItem(no, fonte, dataCaptura);
 
                 if (dto is null)
+                {
                     continue;
+                }
 
-                if (!EhRelevanteTi($"{dto.Titulo} {dto.Descricao}"))
+                var textoCompleto = $"{dto.Titulo} {dto.Cargo} {dto.Descricao}";
+                var keywordsEncontradas = ObterKeywordsEncontradas(textoCompleto);
+
+                if (keywordsEncontradas.Count == 0)
                 {
                     _logger.LogDebug(
                         "Concurso ignorado por não ser área de TI. Cargo: '{Cargo}' | Fonte: {Fonte}",
@@ -147,59 +138,51 @@ public sealed partial class ConcursoHtmlParser : IConcursoHtmlParser
                     continue;
                 }
 
-                resultado.Add(dto);
-                _logger.LogDebug("Concurso extraído: '{Titulo}' | Cargo: '{Cargo}'", dto.Titulo, dto.Cargo);
+                var dtoComScore = dto with
+                {
+                    RelevanciaScore = keywordsEncontradas.Count,
+                    KeywordsEncontradas = keywordsEncontradas.ToArray()
+                };
+
+                resultado.Add(dtoComScore);
+                _logger.LogDebug("Concurso TI extraído: '{Titulo}' | Score: {Score} | Keywords: {Keywords}",
+                    dtoComScore.Titulo, dtoComScore.RelevanciaScore, string.Join(", ", dtoComScore.KeywordsEncontradas));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Erro ao processar nó HTML. Fonte: {Fonte}", fonte);
-                // Continua para o próximo item — falha isolada não interrompe o lote
             }
         }
 
         _logger.LogInformation(
-            "Parse concluído. {Encontrados} de {Total} itens são relevantes para TI. Fonte: {Fonte}",
+            "Parse concluído. {Encontrados} de {Total} itens são relevantes para TI (Filtro 80+ Keywords). Fonte: {Fonte}",
             resultado.Count, nodes.Count, fonte);
 
         return resultado.AsReadOnly();
     }
 
-    // -------------------------------------------------------------------------
-    // Extração de um item individual
-    // -------------------------------------------------------------------------
-
-    private ConcursoDto? ExtrairItem(HtmlNode li, string fonte, DateTimeOffset dataCaptura)
+    private ConcursoDto? ExtrairItem(HtmlNode no, string fonte, DateTimeOffset dataCaptura)
     {
-        // Único <a> dentro do <li>
-        var anchor = li.SelectSingleNode(".//a");
+        var anchor = no.SelectSingleNode(".//a");
         if (anchor is null) return null;
 
         var titulo = Limpar(anchor.InnerText);
         var link = anchor.GetAttributeValue("href", string.Empty);
-        var descricaoNode = li.SelectSingleNode(".//div[contains(@class,'cd')]");
+        var descricaoNode = no.SelectSingleNode(".//div[contains(@class,'cd')]")
+            ?? no.SelectSingleNode(".//p")
+            ?? no.SelectSingleNode(".//span[contains(@class,'descricao')]");
 
         var descricao = Limpar(descricaoNode?.InnerText);
-
-        var dataNode = li.SelectSingleNode(".//div[contains(@class,'ce')]/span");
-
-        var dataTexto = Limpar(dataNode?.InnerText);
 
         if (string.IsNullOrWhiteSpace(titulo) || string.IsNullOrWhiteSpace(link))
             return null;
 
-        link = NormalizarLink(link);
+        link = NormalizarLink(link, fonte);
 
-        // Órgão: extraído do início do título via regex de verbos separadores
         var orgao = ExtrairOrgaoDoTitulo(titulo) ?? "Não informado";
-
-        // Cargo: inferido das palavras-chave de TI no texto completo
         var cargo = InferirCargo(titulo, descricao) ?? titulo;
-
-        // Salário: extraído via regex do atributo title (descrição longa)
         var salario = ExtrairSalario(descricao) ?? "Não informado";
 
-        // PCI Concursos não expõe data por item na listagem lateral
-        // DataPublicacao = DataCaptura até termos uma fonte com data explícita
         return new ConcursoDto
         {
             DeduplicationKey = GerarChaveDeduplicacao(link),
@@ -215,16 +198,21 @@ public sealed partial class ConcursoHtmlParser : IConcursoHtmlParser
         };
     }
 
-    // -------------------------------------------------------------------------
-    // Filtro de TI
-    // -------------------------------------------------------------------------
-
-    private static bool EhRelevanteTi(string texto) =>
+    public static bool EhRelevanteTi(string texto) =>
         PalavrasChaveTi.Any(p => texto.Contains(p, StringComparison.OrdinalIgnoreCase));
 
-    // -------------------------------------------------------------------------
-    // Helpers de extração
-    // -------------------------------------------------------------------------
+    private static List<string> ObterKeywordsEncontradas(string texto)
+    {
+        var encontradas = new List<string>();
+        foreach (var palavra in PalavrasChaveTi)
+        {
+            if (texto.Contains(palavra, StringComparison.OrdinalIgnoreCase))
+            {
+                encontradas.Add(palavra);
+            }
+        }
+        return encontradas;
+    }
 
     private static string? ExtrairOrgaoDoTitulo(string titulo)
     {
@@ -236,8 +224,12 @@ public sealed partial class ConcursoHtmlParser : IConcursoHtmlParser
     {
         var texto = $"{titulo} {descricao}";
         foreach (var palavra in PalavrasChaveTi)
+        {
             if (texto.Contains(palavra, StringComparison.OrdinalIgnoreCase))
+            {
                 return palavra;
+            }
+        }
         return null;
     }
 
@@ -248,17 +240,27 @@ public sealed partial class ConcursoHtmlParser : IConcursoHtmlParser
         return match.Success ? match.Value.Trim() : null;
     }
 
-    /// <summary>SHA256 dos primeiros 16 bytes do link normalizado — estável e sem colisão para URLs.</summary>
     private static string GerarChaveDeduplicacao(string link)
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(link.ToLowerInvariant().Trim()));
         return Convert.ToHexString(bytes[..16]).ToLowerInvariant();
     }
 
-    private static string NormalizarLink(string link) =>
-        link.StartsWith("http", StringComparison.OrdinalIgnoreCase)
-            ? link
-            : $"https://www.pciconcursos.com.br{link}";
+    private static string NormalizarLink(string link, string fonte)
+    {
+        if (link.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            link.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return link;
+        }
+
+        if (fonte.Contains("Gran", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"https://www.grancursosonline.com.br{(link.StartsWith('/') ? link : "/" + link)}";
+        }
+
+        return $"https://www.pciconcursos.com.br{(link.StartsWith('/') ? link : "/" + link)}";
+    }
 
     private static string? Limpar(string? texto)
     {

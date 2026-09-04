@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="50%" stop-color="#8b5cf6" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Fundo pulsante sutil -->
+  <circle cx="60" cy="60" r="45" fill="none" stroke="rgba(99, 102, 241, 0.15)" stroke-width="6" />
+
+  <!-- Anel giratório externo -->
+  <circle cx="60" cy="60" r="45" fill="none" stroke="url(#grad1)" stroke-width="6" stroke-linecap="round"
+          stroke-dasharray="180 100" filter="url(#glow)">
+    <animateTransform attributeName="transform" type="rotate" from="0 60 60" to="360 60 60" dur="1.4s" repeatCount="indefinite" />
+  </circle>
+
+  <!-- Anel giratório interno reverso -->
+  <circle cx="60" cy="60" r="30" fill="none" stroke="#06b6d4" stroke-width="4" stroke-linecap="round"
+          stroke-dasharray="100 80" opacity="0.8">
+    <animateTransform attributeName="transform" type="rotate" from="360 60 60" to="0 60 60" dur="1s" repeatCount="indefinite" />
+  </circle>
+
+  <!-- Núcleo central pulsante -->
+  <circle cx="60" cy="60" r="10" fill="url(#grad1)">
+    <animate attributeName="r" values="8;13;8" dur="1.2s" repeatCount="indefinite" />
+    <animate attributeName="opacity" values="0.7;1;0.7" dur="1.2s" repeatCount="indefinite" />
+  </circle>
+</svg>

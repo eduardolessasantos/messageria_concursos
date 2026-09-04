@@ -14,23 +14,28 @@ using Serilog;
 using System;
 using System.Security.Authentication;
 
-
 var builder = Host.CreateApplicationBuilder(args);
 
-// Serilog básico (console structured)
-Log.Logger = new LoggerConfiguration().MinimumLevel.Information().Enrich.FromLogContext().WriteTo.Console().CreateLogger();
+// Serilog
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .CreateLogger();
 
 builder.Services.AddSerilog();
 
 // Bind options
 builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection("RabbitMQ"));
 
-// Db
-var sqliteConn = builder.Configuration.GetValue<string>("ConnectionStrings:Sqlite") ?? "Data Source=concurso_consumer.db";
+// Database (MySQL 8.0 via Pomelo)
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? builder.Configuration.GetConnectionString("MySql")
+    ?? "Server=localhost;Port=3306;Database=concursos_ti;User=root;Password=270523;CharSet=utf8mb4;";
 
 builder.Services.AddDbContext<ConcursoDbContext>(opts =>
 {
-opts.UseSqlite(sqliteConn);
+    opts.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 36)));
 });
 
 // Metrics
@@ -63,10 +68,9 @@ builder.Services.AddMassTransit(x =>
         {
             e.ConfigureConsumer<ConcursoPublicadoConsumer>(context);
             e.PrefetchCount = 16;
-            e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5))); // 3 tentativas, 5s
+            e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
         });
     });
-
 });
 
 builder.Services.AddHealthChecks()
@@ -75,7 +79,7 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
-// Ensure database created/migrations applied (safe for dev; for prod use migrations)
+// Garante criacao do banco de dados MySQL e tabelas na inicializacao
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ConcursoDbContext>();

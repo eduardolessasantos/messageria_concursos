@@ -1,0 +1,144 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Concurso.Api/Dockerfile
+    container_name: concurso-api-prod
+    ports:
+      - "5000:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: "Server=mysql;Port=3306;Database=concursos_ti;Uid=root;Pwd=${MYSQL_ROOT_PASSWORD:-root};CharSet=utf8mb4;"
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: 5672
+      RabbitMQ__Username: ${RABBITMQ_USER:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASS:-guest}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Concurso.Web/Dockerfile
+    container_name: concurso-web-prod
+    ports:
+      - "5001:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Services__ConcursoApi: "http://api:8080"
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: 5672
+      RabbitMQ__Username: ${RABBITMQ_USER:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASS:-guest}
+    depends_on:
+      - api
+      - rabbitmq
+    restart: unless-stopped
+
+  consumer:
+    build:
+      context: .
+      dockerfile: Concurso.Consumer/Dockerfile
+    container_name: concurso-consumer-prod
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: "Server=mysql;Port=3306;Database=concursos_ti;Uid=root;Pwd=${MYSQL_ROOT_PASSWORD:-root};CharSet=utf8mb4;"
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: 5672
+      RabbitMQ__Username: ${RABBITMQ_USER:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASS:-guest}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  notification:
+    build:
+      context: .
+      dockerfile: Concurso.Notification/Dockerfile
+    container_name: concurso-notification-prod
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: 5672
+      RabbitMQ__Username: ${RABBITMQ_USER:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASS:-guest}
+      Email__Provider: ${EMAIL_PROVIDER:-Resend}
+      Resend__ApiKey: ${RESEND_API_KEY:-""}
+      Email__To: ${EMAIL_TO:-"candidato.ti@exemplo.com"}
+      Email__Mailpit__Host: mailpit
+      Email__Mailpit__Port: 1025
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  producer:
+    build:
+      context: .
+      dockerfile: Concurso.Producer/Dockerfile
+    container_name: concurso-producer-prod
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: 5672
+      RabbitMQ__Username: ${RABBITMQ_USER:-guest}
+      RabbitMQ__Password: ${RABBITMQ_PASS:-guest}
+      Collector__IntervaloMinutos: 60
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    container_name: concurso-mysql-prod
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: concursos_ti
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysqldata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD:-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: concurso-rabbitmq-prod
+    hostname: rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit
+    container_name: concurso-mailpit-prod
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    profiles:
+      - dev
+
+volumes:
+  mysqldata:

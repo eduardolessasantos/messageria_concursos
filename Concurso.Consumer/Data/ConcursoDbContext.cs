@@ -1,4 +1,4 @@
-﻿using Concurso.Consumer.Data.Entities;
+using Concurso.Consumer.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace Concurso.Consumer.Data;
@@ -11,6 +11,8 @@ public sealed class ConcursoDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        base.OnModelCreating(modelBuilder);
+
         modelBuilder.Entity<ConcursoEntity>(b =>
         {
             b.HasKey(e => e.Id);
@@ -18,7 +20,7 @@ public sealed class ConcursoDbContext : DbContext
             b.Property(e => e.Titulo).IsRequired().HasMaxLength(1024);
             b.Property(e => e.Fonte).IsRequired().HasMaxLength(256);
             b.Property(e => e.DeduplicationKey).IsRequired().HasMaxLength(64);
-            b.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
+            b.Property(e => e.CreatedAt).IsRequired();
         });
     }
 }

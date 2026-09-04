@@ -1,0 +1,101 @@
+services:
+  # 1. Minimal API pública
+  - type: web
+    name: concurso-api
+    runtime: docker
+    dockerfilePath: ./Concurso.Api/Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__DefaultConnection
+        sync: false # Inserir connection string do MySQL (ex: Aiven, Supabase ou Render DB)
+      - key: RabbitMQ__Host
+        sync: false # Host do broker (ex: CloudAMQP gratuito)
+      - key: RabbitMQ__Port
+        value: "5671"
+      - key: RabbitMQ__Username
+        sync: false
+      - key: RabbitMQ__Password
+        sync: false
+      - key: RabbitMQ__UseSsl
+        value: "true"
+
+  # 2. Worker de Persistência no Banco
+  - type: worker
+    name: concurso-consumer
+    runtime: docker
+    dockerfilePath: ./Concurso.Consumer/Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    envVars:
+      - key: DOTNET_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__DefaultConnection
+        sync: false
+      - key: RabbitMQ__Host
+        sync: false
+      - key: RabbitMQ__Port
+        value: "5671"
+      - key: RabbitMQ__Username
+        sync: false
+      - key: RabbitMQ__Password
+        sync: false
+      - key: RabbitMQ__UseSsl
+        value: "true"
+
+  # 3. Worker de Notificação por E-mail (Resend)
+  - type: worker
+    name: concurso-notification
+    runtime: docker
+    dockerfilePath: ./Concurso.Notification/Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    envVars:
+      - key: DOTNET_ENVIRONMENT
+        value: Production
+      - key: RabbitMQ__Host
+        sync: false
+      - key: RabbitMQ__Port
+        value: "5671"
+      - key: RabbitMQ__Username
+        sync: false
+      - key: RabbitMQ__Password
+        sync: false
+      - key: RabbitMQ__UseSsl
+        value: "true"
+      - key: Email__Provider
+        value: Resend
+      - key: Resend__ApiKey
+        sync: false
+      - key: Email__To
+        sync: false
+
+  # 4. Worker de Coleta de Concursos de TI
+  - type: worker
+    name: concurso-producer
+    runtime: docker
+    dockerfilePath: ./Concurso.Producer/Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    envVars:
+      - key: DOTNET_ENVIRONMENT
+        value: Production
+      - key: RabbitMQ__Host
+        sync: false
+      - key: RabbitMQ__Port
+        value: "5671"
+      - key: RabbitMQ__Username
+        sync: false
+      - key: RabbitMQ__Password
+        sync: false
+      - key: RabbitMQ__UseSsl
+        value: "true"
+      - key: Collector__IntervaloMinutos
+        value: "60"
