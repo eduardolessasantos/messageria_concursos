@@ -91,17 +91,27 @@ builder.Services.AddTransient<IConcursoCollectorService, ConcursoCollectorServic
 
 // MassTransit (Publisher RabbitMQ)
 var rabbitHost = builder.Configuration.GetValue<string>("RabbitMQ:Host") ?? "localhost";
+var rabbitPort = builder.Configuration.GetValue<ushort?>("RabbitMQ:Port") ?? 5672;
 var rabbitUser = builder.Configuration.GetValue<string>("RabbitMQ:Username") ?? "guest";
 var rabbitPass = builder.Configuration.GetValue<string>("RabbitMQ:Password") ?? "guest";
+var rabbitVHost = builder.Configuration.GetValue<string>("RabbitMQ:VirtualHost")
+               ?? builder.Configuration.GetValue<string>("RabbitMQ:VHost")
+               ?? (rabbitUser != "guest" ? rabbitUser : "/");
+var rabbitUseSsl = builder.Configuration.GetValue<bool>("RabbitMQ:UseSsl", false) || rabbitPort == 5671;
 
 builder.Services.AddMassTransit(x =>
 {
     x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host(rabbitHost, "/", h =>
+        cfg.Host(rabbitHost, rabbitPort, rabbitVHost, h =>
         {
             h.Username(rabbitUser);
             h.Password(rabbitPass);
+
+            if (rabbitUseSsl)
+            {
+                h.UseSsl(s => s.Protocol = System.Security.Authentication.SslProtocols.Tls12);
+            }
         });
 
         cfg.ConfigureEndpoints(context);
