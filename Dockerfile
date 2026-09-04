@@ -10,6 +10,7 @@ COPY ["Concurso.Api/Concurso.Api.csproj", "Concurso.Api/"]
 COPY ["Concurso.Messaging/Concurso.Messaging.csproj", "Concurso.Messaging/"]
 COPY ["Concurso.Consumer/Concurso.Consumer.csproj", "Concurso.Consumer/"]
 COPY ["Concurso.Producer/Concurso.Producer.csproj", "Concurso.Producer/"]
+COPY ["Concurso.Notification/Concurso.Notification.csproj", "Concurso.Notification/"]
 COPY ["Concurso.Shared/Concurso.Shared.csproj", "Concurso.Shared/"]
 
 RUN dotnet restore "Concurso.Api/Concurso.Api.csproj"

@@ -1,5 +1,7 @@
 using Concurso.Consumer.Data;
+using Concurso.Consumer.Repositories;
 using Concurso.Messaging.Events;
+using Concurso.Notification.Services;
 using Concurso.Producer.Interfaces;
 using Concurso.Producer.Parsers;
 using Concurso.Producer.Services;
@@ -11,7 +13,9 @@ using Microsoft.EntityFrameworkCore;
 using Polly;
 using Polly.Extensions.Http;
 using Polly.Timeout;
+using Resend;
 using Serilog;
+using Log = Serilog.Log;
 using System.IO;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -89,7 +93,37 @@ builder.Services.AddTransient<IConcursoAggregationService, ConcursoAggregationSe
 builder.Services.AddTransient<IConcursoHtmlParser, ConcursoHtmlParser>();
 builder.Services.AddTransient<IConcursoCollectorService, ConcursoCollectorService>();
 
-// MassTransit (Publisher RabbitMQ)
+// Notification & Resend Client
+var resendApiToken = builder.Configuration["Resend:ApiKey"]
+    ?? builder.Configuration["Resend:ApiToken"]
+    ?? builder.Configuration["ResendApiKey"]
+    ?? builder.Configuration["RESEND_API_KEY"]
+    ?? string.Empty;
+
+builder.Services.AddHttpClient<ResendClient>();
+builder.Services.AddScoped<IResend, ResendClient>();
+builder.Services.Configure<ResendClientOptions>(options =>
+{
+    options.ApiToken = resendApiToken;
+});
+
+builder.Services.AddScoped<IEmailSender>(sp =>
+{
+    var config = sp.GetRequiredService<IConfiguration>();
+    var provider = config["Email:Provider"] ?? "Resend";
+
+    return provider.ToLowerInvariant() switch
+    {
+        "resend" => new ResendEmailSender(sp.GetRequiredService<IResend>(), config),
+        "mailpit" => new MailpitEmailSender(config),
+        _ => new ResendEmailSender(sp.GetRequiredService<IResend>(), config)
+    };
+});
+
+// Repository do Consumer para persistência direta
+builder.Services.AddScoped<IConcursoRepository, ConcursoRepository>();
+
+// MassTransit (Publisher & Consumers integrados na API)
 var rabbitHost = builder.Configuration.GetValue<string>("RabbitMQ:Host") ?? "localhost";
 var rabbitPort = builder.Configuration.GetValue<ushort?>("RabbitMQ:Port") ?? 5672;
 var rabbitUser = builder.Configuration.GetValue<string>("RabbitMQ:Username") ?? "guest";
@@ -101,6 +135,10 @@ var rabbitUseSsl = builder.Configuration.GetValue<bool>("RabbitMQ:UseSsl", false
 
 builder.Services.AddMassTransit(x =>
 {
+    // Registra o consumidor de persistência no MySQL e o consumidor de envio de e-mail
+    x.AddConsumer<Concurso.Consumer.Consumers.ConcursoPublicadoConsumer>();
+    x.AddConsumer<Concurso.Notification.Consumers.ConcursoPublicadoConsumer>();
+
     x.UsingRabbitMq((context, cfg) =>
     {
         cfg.Host(rabbitHost, rabbitPort, rabbitVHost, h =>
@@ -112,6 +150,21 @@ builder.Services.AddMassTransit(x =>
             {
                 h.UseSsl(s => s.Protocol = System.Security.Authentication.SslProtocols.Tls12);
             }
+        });
+
+        // Configura fila para salvar no banco
+        cfg.ReceiveEndpoint("concurso-published-queue", e =>
+        {
+            e.ConfigureConsumer<Concurso.Consumer.Consumers.ConcursoPublicadoConsumer>(context);
+            e.PrefetchCount = 16;
+            e.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+        });
+
+        // Configura fila para envio de e-mail
+        cfg.ReceiveEndpoint("concurso-notification-email-queue", e =>
+        {
+            e.UseMessageRetry(r => r.Exponential(3, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(2)));
+            e.ConfigureConsumer<Concurso.Notification.Consumers.ConcursoPublicadoConsumer>(context);
         });
 
         cfg.ConfigureEndpoints(context);
