@@ -35,7 +35,13 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 
 builder.Services.AddDbContext<ConcursoDbContext>(opts =>
 {
-    opts.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 36)));
+    opts.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 36)), mySqlOptions =>
+    {
+        mySqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 3,
+            maxRetryDelay: TimeSpan.FromSeconds(5),
+            errorNumbersToAdd: null);
+    });
 });
 
 // Metrics
@@ -79,11 +85,17 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
-// Garante criacao do banco de dados MySQL e tabelas na inicializacao
-using (var scope = app.Services.CreateScope())
+// Garante criação do banco de dados MySQL e tabelas na inicialização se acessível
+try
 {
+    using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<ConcursoDbContext>();
     db.Database.EnsureCreated();
+    Log.Information("Banco de dados verificado com sucesso no Consumer.");
+}
+catch (Exception ex)
+{
+    Log.Warning("Banco de dados indisponível no startup do Consumer ({Erro}). As tentativas de reconexão ocorrerão durante o consumo.", ex.Message);
 }
 
 await app.RunAsync();

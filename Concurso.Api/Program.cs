@@ -32,7 +32,15 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
     ?? builder.Configuration.GetConnectionString("MySql")
     ?? "Server=localhost;Port=3306;Database=concursos_ti;User=root;Password=270523;CharSet=utf8mb4;";
 builder.Services.AddDbContext<ConcursoDbContext>(opts =>
-    opts.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 36))));
+{
+    opts.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 36)), mySqlOptions =>
+    {
+        mySqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 3,
+            maxRetryDelay: TimeSpan.FromSeconds(5),
+            errorNumbersToAdd: null);
+    });
+});
 
 // Metrics
 builder.Services.AddSingleton<IAppMetrics, InMemoryAppMetrics>();
@@ -135,11 +143,17 @@ app.UseSwaggerUI(c =>
     c.RoutePrefix = string.Empty; // Swagger na raiz (http://localhost:5000/)
 });
 
-// Garante criação do banco local
-using (var scope = app.Services.CreateScope())
+// Tenta inicializar o banco de dados sem travar a inicialização do container
+try
 {
+    using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<ConcursoDbContext>();
     db.Database.EnsureCreated();
+    Log.Information("Banco de dados verificado com sucesso.");
+}
+catch (Exception ex)
+{
+    Log.Warning("Banco de dados MySQL indisponível na inicialização ({Erro}). A API continuará ativa e tentará reconectar sob demanda.", ex.Message);
 }
 
 // -----------------------------------------------------------------------------
@@ -177,13 +191,21 @@ app.MapGet("/health", async (ConcursoDbContext db) =>
 .WithName("HealthCheck")
 .WithTags("Observabilidade");
 
-// Listar concursos persistidos no banco
+// Listar concursos persistidos no banco (resiliente a banco indisponível)
 app.MapGet("/api/concursos", async (ConcursoDbContext db) =>
 {
-    var list = await db.Concursos
-        .OrderByDescending(c => c.DataCaptura)
-        .ToListAsync();
-    return Results.Ok(list);
+    try
+    {
+        var list = await db.Concursos
+            .OrderByDescending(c => c.DataCaptura)
+            .ToListAsync();
+        return Results.Ok(list);
+    }
+    catch (Exception ex)
+    {
+        Log.Warning("Não foi possível consultar concursos no banco ({Erro}). Retornando lista vazia.", ex.Message);
+        return Results.Ok(Array.Empty<object>());
+    }
 })
 .WithName("ListarConcursos")
 .WithTags("Concursos");
