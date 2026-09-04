@@ -13,7 +13,7 @@ RUN dotnet restore "Concurso.Api/Concurso.Api.csproj"
 # Copia todo o código fonte e compila em modo Release
 COPY . .
 WORKDIR "/src/Concurso.Api"
-RUN dotnet publish "Concurso.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "Concurso.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false /p:ErrorOnDuplicatePublishOutputFiles=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
